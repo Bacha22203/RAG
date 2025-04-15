@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -9,14 +9,13 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from PyPDF2 import PdfReader
 import logging
-
 import httpx
 
 # === Configuration ===
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 PDF_FILE = Path("C:/Users/21622/Downloads/qa.pdf")  # Specific PDF file
 INDEX_PATH = "faiss.index"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 MODEL = "meta-llama/llama-4-maverick:free"
 
 # === Setup Logging ===
@@ -80,7 +79,6 @@ else:
 # === Build FAISS Index ===
 if texts:
     embeddings = model.encode(texts)
-    # Ensure at least one embedding exists before indexing
     if len(embeddings) > 0:
         index = faiss.IndexFlatL2(embeddings[0].shape[0])
         index.add(embeddings)
@@ -93,17 +91,7 @@ else:
 # === OpenRouter Query Function ===
 async def ask_openrouter(question, context):
     try:
-        prompt = f"""You are Boxsejour AI, the expert virtual assistant for Boxsejour—a premium travel booking service specializing in hotel reservations and travel arrangements. 
-Your role is to provide clear, accurate, and relevant travel-related information, including booking details, destination insights, travel tips, and hotel recommendations. 
-You must maintain a steady, professional tone that never sacrifices warmth or a slight sense of humor when appropriate.
-
-Key instructions:
-- Accuracy and Reliability: Provide only accurate information; do not hallucinate or guess details. If uncertain or if the information is not available, state clearly: "I don’t have that info right now, but you might check our website or a travel guide!"
-- Language Adaptation and Context Extraction: Respond in the same language as the query. If a query is in French, answer in French; if in English, answer in English. When data sources or information are in another language, do not rely on a literal translation. Instead, carefully extract and adapt the true context to ensure that nuances and accurate meanings are preserved, avoiding common translation errors.
-- Clarification and Engagement: For unclear questions, politely ask for further clarification, e.g., "Could you please provide more details so I can assist you better?" For greetings like "Hi" or "Hello," respond in a friendly, engaging, and warm manner, such as "Hello there! Ready to plan your next adventure?"
-- Handling Off-Topic or Irrelevant Queries: If a query is whimsical or irrelevant, humorously steer the conversation back on track with responses like, "I’m not sure about pigs, but I can definitely help you fly somewhere nice—where are you thinking?"
-- Travel and Booking Focus: Tailor responses to assist with travel bookings, especially hotel reservations. Provide detailed, helpful suggestions on hotels, booking procedures, cancellation policies, and local travel tips whenever relevant. Ensure any travel advice is practical and reflective of the latest context for travel planning.
-- Consistent Professionalism: Maintain a professional, steady, and friendly tone at all times. Exhibit empathy and understanding, reinforcing that the user’s travel plans are important.
+        prompt = f"""You are Boxsejour AI, the expert virtual assistant for Boxsejour—a premium travel booking service...
 
 Context:
 {context}
@@ -118,7 +106,7 @@ Answer:"""
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}
             ],
-            "temperature": 0.2
+            "temperature": 0.4
         }
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -128,7 +116,16 @@ Answer:"""
             response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
             result = response.json()
-            return result['choices'][0]['message']['content']
+
+            # Log full response for debugging
+            logger.info(f"OpenRouter raw response: {json.dumps(result, indent=2)}")
+
+            # Handle missing 'choices' key
+            if "choices" in result:
+                return result['choices'][0]['message']['content']
+            else:
+                logger.error(f"OpenRouter API returned unexpected format: {result}")
+                return "Sorry, I couldn't process your request due to an unexpected server response."
     except Exception as e:
         logger.error(f"Error calling OpenRouter: {e}")
         return "Sorry, I couldn't process your request due to a server issue."
